@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -11,11 +12,29 @@ CSV_URL = (
 FOLDER_ID = "1SpmP3HK5tsJAw0eUvSqj4rM-bzBwmca6"
 OUTPUT_FILENAME = "report_google.xlsx"
 CREDENTIALS_FILE = "credentials.json"
+LOCAL_CSV = "all_teams.csv"
 
 
 def main():
-  print("Stahuji kompletní CSV soubor z MoneyPuck...")
-  df_full = pd.read_csv(CSV_URL)
+  print("Stahuji CSV soubor z MoneyPuck přes bezpečný požadavek...")
+
+  # Použijeme requests s User-Agentem, abychom obešli 403 Forbidden ochranu
+  headers = {
+      "User-Agent": (
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
+          " like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      )
+  }
+
+  response = requests.get(CSV_URL, headers=headers, stream=True)
+  response.raise_for_status()
+
+  with open(LOCAL_CSV, "wb") as f:
+    for chunk in response.iter_content(chunk_size=8192):
+      f.write(chunk)
+
+  print("Soubor úspěšně stažen. Načítám do pandas...")
+  df_full = pd.read_csv(LOCAL_CSV)
 
   # Načtení SQL filtru ze souboru report.sql, pokud existuje
   sql_query = (
@@ -68,7 +87,7 @@ def main():
   results = service.files().list(q=query, fields="files(id, name)").execute()
   for item in results.get("files", []):
     service.files().delete(fileId=item["id"]).execute()
-    print(f"Starý soubor smazán z Disku.")
+    print("Starý soubor smazán z Disku.")
 
   # Nahrání nového souboru
   file_metadata = {"name": OUTPUT_FILENAME, "parents": [FOLDER_ID]}
@@ -85,6 +104,10 @@ def main():
       .execute()
   )
   print(f"Hotovo! Soubor úspěšně nahrán na Disk s ID: {file.get('id')}")
+
+  # Úklid lokálního CSV souboru, aby zbytečně nezabíral místo
+  if os.path.exists(LOCAL_CSV):
+    os.remove(LOCAL_CSV)
 
 
 if __name__ == "__main__":
