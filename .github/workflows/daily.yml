@@ -5,6 +5,9 @@ on:
     - cron: '0 6 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -24,10 +27,8 @@ jobs:
       - name: Run sync script
         run: python update_moneypuck_google.py
 
-      - name: Commit and push if changed
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add report_google.xlsx
-          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update Moneypuck report [skip ci]"
-          git push
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto-update Moneypuck report [skip ci]"
+          file_pattern: "report_google.xlsx"
