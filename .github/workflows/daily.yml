@@ -2,8 +2,8 @@ name: Daily Moneypuck Sync
 
 on:
   schedule:
-    - cron: '0 6 * * *' # Spustí se každý den automaticky v 6:00 ráno
-  workflow_dispatch: # Umožňuje spustit skript ručně jedním klikem kdykoliv
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -20,6 +20,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pandas openpyxl google-api-python-client google-auth requests
+
+      - name: Create credentials file from Secret
+        run: |
+          echo "${{ secrets.GCP_CREDENTIALS }}" > credentials.json
 
       - name: Run sync script
         run: python update_moneypuck_google.py
