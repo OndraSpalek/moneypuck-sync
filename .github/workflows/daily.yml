@@ -21,9 +21,5 @@ jobs:
         run: |
           pip install pandas openpyxl google-api-python-client google-auth requests
 
-      - name: Create credentials file from Secret
-        run: |
-          echo "${{ secrets.GCP_CREDENTIALS }}" > credentials.json
-
       - name: Run sync script
         run: python update_moneypuck_google.py
