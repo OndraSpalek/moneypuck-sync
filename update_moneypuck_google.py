@@ -1,142 +1,81 @@
-import io
 import os
-import re
-import pandas as pd
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from requests import get
 
-# Konfigurace
-CSV_URL = (
-    "https://moneypuck.com/moneypuck/playerData/careers/gameByGame/all_teams.csv"
-)
-FOLDER_ID = "1SpmP3HK5tsJAw0eUvSqj4rM-bzBwmca6"
-OUTPUT_FILENAME = "report_google.xlsx"
-CREDENTIALS_FILE = "credentials.json"
-SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+# Oprávnění pro správu souborů na disku
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
+# ID cílové složky 'moneypuck' na Google Disku
+FOLDER_ID = '1SpmP3HK5tsJAw0eUvSqj4rM-bzBwmca6'
 
-def authenticate_google_drive():
+def get_drive_service():
     creds = None
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-
+    # Token uložíme lokálně, aby se skript příště neptal
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    
+    # Pokud token neexistuje nebo je neplatný/vypršelý
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                print(f"Obnovení tokenu selhalo: {e}. Spouštím novou autorizaci...")
+                creds = None
+        
+        if not creds:
+            if not os.path.exists('credentials.json'):
+                raise FileNotFoundError("Chybí soubor 'credentials.json' z Google Cloud Console!")
+            
             flow = InstalledAppFlow.from_client_secrets_file(
-                CREDENTIALS_FILE, SCOPES
-            )
-            creds = flow.run_local_server(port=0)
-
-        with open("token.json", "w") as token:
+                'credentials.json', SCOPES)
+            # prompt='consent' a access_type='offline' zajistí trvalý refresh_token
+            creds = flow.run_local_server(port=0, prompt='consent', access_type='offline')
+            
+        # Uložení tokenu pro příští spuštění
+        with open('token.json', 'w') as token:
             token.write(creds.to_json())
 
-    return build("drive", "v3", credentials=creds)
+    return build('drive', 'v3', credentials=creds)
 
-
-def main():
-    print("Stahuji kompletní CSV soubor z MoneyPuck...")
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
-            " like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        )
-    }
-
-    response = get(CSV_URL, headers=headers)
-
-    if response.status_code != 200:
-        print(
-            "Chyba při stahování dat. Server vrátil HTTP kód:"
-            f" {response.status_code}"
-        )
+def upload_to_drive():
+    service = get_drive_service()
+    
+    file_name = 'report_google.xlsx'
+    if not os.path.exists(file_name):
+        print(f"Chyba: Soubor {file_name} nebyl nalezen k nahrání!")
         return
 
-    df_full = pd.read_csv(io.StringIO(response.text))
-    print("Data byla úspěšně stažena a načtena!")
-
-    # Načtení SQL filtru ze souboru report.sql
-    sql_query = ""
-    if os.path.exists("report.sql"):
-        with open("report.sql", "r", encoding="utf-8") as f:
-            sql_query = f.read()
-        print("Načten lokální soubor report.sql")
-    else:
-        sql_query = (
-            "SELECT * FROM all_teams WHERE season = 2026 AND playoffGame = 0"
-            " AND situation = 'all'"
-        )
-
-    # Automatické detekování sezóny z report.sql
-    season_match = re.search(
-        r"season\s*=\s*['\"]?(\d+)['\"]?", sql_query, re.IGNORECASE
-    )
-    target_season = season_match.group(1) if season_match else "2026"
-
-    print(
-        f"Filtruji data pro sezónu {target_season} (základní část,"
-        " situation='all')..."
-    )
-
-    # Filtr používá sezónu z vašeho SQL souboru
-    df_filtered = df_full[
-        (df_full["season"].astype(str) == target_season)
-        & (df_full["playoffGame"].astype(str) == "0")
-        & (df_full["situation"].str.lower() == "all")
-    ].copy()
-
-    print(f"Filtr vrátil {len(df_filtered)} řádků.")
-
-    # Rozdělení na Away a Home záložky
-    if "home_or_away" in df_filtered.columns:
-        df_away = df_filtered[df_filtered["home_or_away"].str.upper() == "AWAY"]
-        df_home = df_filtered[df_filtered["home_or_away"].str.upper() == "HOME"]
-    elif "isHome" in df_filtered.columns:
-        df_away = df_filtered[df_filtered["isHome"] == 0]
-        df_home = df_filtered[df_filtered["isHome"] == 1]
-    else:
-        half = len(df_filtered) // 2
-        df_away = df_filtered.iloc[:half]
-        df_home = df_filtered.iloc[half:]
-
-    # Generování Excelu se dvěma listy
-    print(f"Generuji Excel {OUTPUT_FILENAME}...")
-    with pd.ExcelWriter(OUTPUT_FILENAME, engine="openpyxl") as writer:
-        df_away.to_excel(writer, sheet_name="Away", index=False)
-        df_home.to_excel(writer, sheet_name="Home", index=False)
-
-    print("Připojuji se k Google Disku...")
-    service = authenticate_google_drive()
-
-    # Smazání starého souboru na Disku, pokud existuje
-    query = f"'{FOLDER_ID}' in parents and name='{OUTPUT_FILENAME}' and trashed=false"
+    # 1. Hledání a mazání starého souboru ve složce 'moneypuck'
+    print("Kontroluji staré verze souboru ve složce...")
+    query = f"'{FOLDER_ID}' in parents and name = '{file_name}' and trashed = false"
     results = service.files().list(q=query, fields="files(id, name)").execute()
-    for item in results.get("files", []):
-        service.files().delete(fileId=item["id"]).execute()
-        print("Starý soubor smazán z Disku.")
+    items = results.get('files', [])
 
-    # Nahrání nového souboru
-    file_metadata = {"name": OUTPUT_FILENAME, "parents": [FOLDER_ID]}
-    media = MediaFileUpload(
-        OUTPUT_FILENAME,
-        mimetype=(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        ),
-        resumable=True,
-    )
-    file = (
-        service.files()
-        .create(body=file_metadata, media_body=media, fields="id")
-        .execute()
-    )
-    print(f"Hotovo! Soubor úspěšně nahrán na Disk s ID: {file.get('id')}")
+    for item in items:
+        file_id_to_delete = item['id']
+        print(f"Mazání starého souboru (ID: {file_id_to_delete})...")
+        service.files().delete(fileId=file_id_to_delete).execute()
 
+    # 2. Nahrání nového souboru
+    file_metadata = {
+        'name': file_name,
+        'parents': [FOLDER_ID]
+    }
+    
+    media = MediaFileUpload(file_name, resumable=True)
 
-if __name__ == "__main__":
-    main()
+    print("Nahrávám nový soubor do složky moneypuck na Google Disk...")
+    file = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields='id'
+    ).execute()
+    
+    print(f"Úspěšně nahráno do složky moneypuck! ID nového souboru: {file.get('id')}")
+
+if __name__ == '__main__':
+    upload_to_drive()
