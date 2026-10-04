@@ -23,10 +23,17 @@ def update_moneypuck():
         # Načtení dat do Pandasu
         df = pd.read_csv(io.StringIO(response.text))
         
+        # FILTR: Ponecháme pouze sezónu/rok 2026, abychom nepřesáhli 100 MB limit GitHubu
+        if 'season' in df.columns:
+            df = df[df['season'] == 2026]
+            print(f"Data byla úspěšně filtrována na rok 2026. Počet řádků: {len(df)}")
+        else:
+            print("Varování: Sloupec 'season' nebyl v datech nalezen.")
+
         # Uložení jako Excel soubor do kořene repozitáře
         output_file = "report_google.xlsx"
         df.to_excel(output_file, index=False)
-        print(f"Soubor {output_file} byl úspěšně vygenerován (řádků: {len(df)}).")
+        print(f"Soubor {output_file} byl úspěšně vygenerován a zmenšen (řádků: {len(df)}).")
     else:
         print(f"Chyba při stahování dat z MoneyPucku: HTTP status {response.status_code}")
         exit(1)
