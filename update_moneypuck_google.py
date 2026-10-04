@@ -5,9 +5,9 @@ import io
 def update_moneypuck():
     print("Stahuji data z MoneyPucku...")
     
-    url = "https://moneypuck.com/moneypuck/playerData/downloads/SKATER_table.csv"
+    # Správná adresa pro kariérní/game-by-game data
+    url = "https://moneypuck.com/moneypuck/playerData/careers/gameByGame/all_teams.csv"
     
-    # Přidáme User-Agent, aby server MoneyPucku požadavek nezablokoval / nevrátil HTML
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
@@ -15,11 +15,9 @@ def update_moneypuck():
     response = requests.get(url, headers=headers)
     
     if response.status_code == 200:
-        # Pojistka: Ověříme, zda server nevrátil HTML chybovou stránku
         content_type = response.headers.get("content-type", "").lower()
         if "html" in content_type or response.text.strip().startswith("<"):
             print("Chyba: Server vrátil HTML stránku místo CSV dat.")
-            print("Začátek odpovědi serveru:", response.text[:300])
             exit(1)
             
         # Načtení dat do Pandasu
