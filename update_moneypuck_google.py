@@ -2,28 +2,36 @@ import pandas as pd
 import requests
 import io
 
-def generate_report():
+def update_moneypuck():
     print("Stahuji data z MoneyPucku...")
     
-    # Příklad stahování dat z MoneyPucku (upravte si URL/logiku podle toho, jak stahujete data vy)
-    # Příklad pro stahování aktuálních hokejových statistik:
     url = "https://moneypuck.com/moneypuck/playerData/downloads/SKATER_table.csv"
     
-    response = requests.get(url)
+    # Přidáme User-Agent, aby server MoneyPucku požadavek nezablokoval / nevrátil HTML
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    
+    response = requests.get(url, headers=headers)
+    
     if response.status_code == 200:
-        # Zpracování přes pandas
+        # Pojistka: Ověříme, zda server nevrátil HTML chybovou stránku
+        content_type = response.headers.get("content-type", "").lower()
+        if "html" in content_type or response.text.strip().startswith("<"):
+            print("Chyba: Server vrátil HTML stránku místo CSV dat.")
+            print("Začátek odpovědi serveru:", response.text[:300])
+            exit(1)
+            
+        # Načtení dat do Pandasu
         df = pd.read_csv(io.StringIO(response.text))
         
-        # Zde proveďte své úpravy dat (filtrování na aktuální sezónu 2026 atd.)
-        # ...
-        
-        # Uložení jako lokální Excel soubor do kořene repozitáře
+        # Uložení jako Excel soubor do kořene repozitáře
         output_file = "report_google.xlsx"
         df.to_excel(output_file, index=False)
-        print(f"Soubor {output_file} byl úspěšně vygenerován a uložen.")
+        print(f"Soubor {output_file} byl úspěšně vygenerován (řádků: {len(df)}).")
     else:
-        print(f"Chyba při stahování dat z MoneyPucku: {response.status_code}")
+        print(f"Chyba při stahování dat z MoneyPucku: HTTP status {response.status_code}")
         exit(1)
 
 if __name__ == '__main__':
-    generate_report()
+    update_moneypuck()
